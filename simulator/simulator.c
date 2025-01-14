@@ -68,8 +68,6 @@ int main(int argc, char** argv)
   instruction_t* instructions = decode_instructions(instruction_bytes, num_instructions);
   print_instructions(instructions, num_instructions);
 
-// Once you have completed part 1 (decoding instructions), uncomment the below block
-
   // Allocate and initialize registers
   unsigned int* registers = (unsigned int*)malloc(sizeof(unsigned int) * NUM_REGS);
   for (int i = 0; i < NUM_REGS; i++) {
@@ -87,12 +85,15 @@ int main(int argc, char** argv)
   unsigned int program_counter = 0;
 
   // program_counter is a byte address, so we must multiply num_instructions by 4 to get the address past the last instruction
-  while(program_counter != num_instructions * 4)
+  while(program_counter < num_instructions * 4)
   {
     program_counter = execute_instruction(program_counter, instructions, registers, memory);
   }
 
   free(instruction_bytes);
+  free(memory);
+  free(registers);
+  free(instructions);
   
   return 0;
 }
@@ -105,11 +106,11 @@ int main(int argc, char** argv)
 */
 instruction_t* decode_instructions(unsigned int* bytes, unsigned int num_instructions)
 {
-  instruction_t* retval = (instruction_t*)malloc(sizeof(instruction_t) * num_instructions);;
+  instruction_t* retval = (instruction_t*)malloc(sizeof(instruction_t) * num_instructions);
   for (int i = 0; i < num_instructions; i++) {
     retval[i].opcode = (bytes[i] >> 27) & 0x1F;
     retval[i].first_register = (bytes[i] >> 22) & 0x1F;
-    retval[i].second_register = (bytes[i] >> 7) & 0x1F;
+    retval[i].second_register = (bytes[i] >> 17) & 0x1F;
     retval[i].immediate = bytes[i] & 0xFFFF;
   }
     
@@ -122,6 +123,9 @@ instruction_t* decode_instructions(unsigned int* bytes, unsigned int num_instruc
 */
 unsigned int execute_instruction(unsigned int program_counter, instruction_t* instructions, unsigned int* registers, unsigned char* memory)
 {
+  unsigned int result;
+  int r1;
+  int r2;
   // program_counter is a byte address, but instructions are 4 bytes each
   // divide by 4 to get the index into the instructions array
   instruction_t instr = instructions[program_counter / 4];
@@ -153,71 +157,101 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     return program_counter + 4;
 
   case movl_deref_reg:
-    registers[instr.second_register] = memory[registers[instr.first_register] + instr.immediate];
+    registers[instr.second_register] = memory[registers[instr.first_register] + (int)instr.immediate];
     return program_counter + 4;
 
   case movl_reg_deref:
-    memory[registers[instr.second_register] + instr.immediate] = registers[instr.first_register];
+    memory[registers[instr.second_register] + (int)instr.immediate] = registers[instr.first_register];
     return program_counter + 4;
 
   case movl_imm_reg:
     registers[instr.first_register] = (int)instr.immediate;
-    break;
+    return program_counter + 4;
 
   case cmpl:
-    int result = 0x00000000;
-    int r2 = registers[instr.second_register]
-    int r1 = registers[instr.first_register]
+    result = 0x00000000;
+    r2 = registers[instr.second_register];
+    r1 = registers[instr.first_register];
+    // unsigned overflow, CF
     if (r2 < r1) {
-      result = result | 0x00000001;
+      result = result | 0x1;
     }
+    // equal values, ZF
     if (r2 == r1) {
-      result = result | 0x00000020;
+      result = result | 0x40;
     }
+    // negative result, SF
     if ((r2 - r1) < 0) {
-      result = result | 0x00000040;
+      result = result | 0x80;
     }
-    if ()
-    break;
+    // signed overflow, OF
+    if (r2 < r1 && (r2 - r1) > 0) {
+      result = result | 0x800;
+    }
+    else if (r2 > r1 && (r2 - r1) < 0) {
+      result = result | 0x800;
+    }
+    registers[0] = result;
+    return program_counter + 4;
 
   case je:
-
-    break;
+    if (registers[0] & 0x40) {
+      program_counter += (int)instr.immediate;
+    }
+    return program_counter + 4;
 
   case jl:
-
-    break;
+    if (((registers[0] & 0x80) >> 7) ^ ((registers[0] & 0x800) >> 11)) {
+      program_counter += (int)instr.immediate;
+    }
+    return program_counter + 4;
 
   case jle:
-
-    break;
+    if ((registers[0] & 0x40) || (((registers[0] & 0x80) >> 7) ^ ((registers[0] & 0x800) >> 11))) {
+      program_counter += (int)instr.immediate;
+    }
+    return program_counter + 4;
 
   case jge:
-
-    break;
+    if (~(((registers[0] & 0x80) >> 7) ^ ((registers[0] & 0x800) >> 11)) & 0x1) {
+      program_counter += (int)instr.immediate;
+    }
+    return program_counter + 4;
 
   case jbe:
-
-    break;
+    if ((registers[0] & 0x1) || (registers[0] & 0x40)) {
+      program_counter += (int)instr.immediate;
+    }
+    return program_counter + 4;
 
   case jmp:
-
-    break;
+    program_counter += (int)instr.immediate;
+    return program_counter + 4;
 
   case call:
-
-    break;
+    registers[8] -= 4;
+    memory[registers[8]] = program_counter + 4;
+    program_counter += (int)instr.immediate;
+    return program_counter + 4;
 
   case ret:
-
-    break;
+    if (registers[8] == 1024) {
+      return -1;
+    }
+    else {
+      program_counter = memory[registers[8]];
+      registers[8] += 4;
+    }
+    return program_counter;
 
   case pushl:
-
-    break;
+    registers[8] -= 4;
+    memory[registers[8]] = registers[instr.first_register];
+    return program_counter + 4;
 
   case popl:
-
+    registers[instr.first_register] = memory[registers[8]];
+    registers[8] += 4;
     break;
 
   case printr:
@@ -228,6 +262,8 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     scanf("%d", &(registers[instr.first_register]));
     return program_counter + 4;
   }
+
+  return program_counter + 4;
 }
 
 
