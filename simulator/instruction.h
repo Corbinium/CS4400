@@ -52,3 +52,5 @@ typedef struct
   unsigned char second_register;
   int16_t immediate; // 16-bit signed integer
 }instruction_t;
+
+#define INT_MAX 2147483647

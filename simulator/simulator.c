@@ -172,8 +172,9 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     result = 0x00000000;
     r2 = registers[instr.second_register];
     r1 = registers[instr.first_register];
+    // printf("r1: %x, r2: %x, res: %x\n", r1, r2, (unsigned int)r2-r1);
     // unsigned overflow, CF
-    if (r2 < r1) {
+    if ((unsigned int)r2 < (unsigned int)r1) {
       result = result | 0x1;
     }
     // equal values, ZF
@@ -181,14 +182,11 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
       result = result | 0x40;
     }
     // negative result, SF
-    if ((r2 - r1) < 0) {
+    if ((int)((unsigned int)r2 - r1) < 0) {
       result = result | 0x80;
     }
     // signed overflow, OF
-    if (r2 < r1 && (r2 - r1) > 0) {
-      result = result | 0x800;
-    }
-    else if (r2 > r1 && (r2 - r1) < 0) {
+    if ((r1 < 0 && r2 > INT_MAX + r1) || (r1 > 0 && r2 < -INT_MAX + r1)) {
       result = result | 0x800;
     }
     registers[0] = result;
