@@ -18,6 +18,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include "instruction.h"
+#include <string.h>
 
 // Forward declarations for helper functions
 unsigned int get_file_size(int file_descriptor);
@@ -66,7 +67,6 @@ int main(int argc, char** argv)
 
   // Allocate and decode instructions (left for you to fill in)
   instruction_t* instructions = decode_instructions(instruction_bytes, num_instructions);
-  print_instructions(instructions, num_instructions);
 
   // Allocate and initialize registers
   unsigned int* registers = (unsigned int*)malloc(sizeof(unsigned int) * NUM_REGS);
@@ -157,11 +157,11 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     return program_counter + 4;
 
   case movl_deref_reg:
-    registers[instr.second_register] = memory[registers[instr.first_register] + (int)instr.immediate];
+    memcpy(&registers[instr.second_register], memory + registers[instr.first_register] + (int)instr.immediate, 4);
     return program_counter + 4;
 
   case movl_reg_deref:
-    memory[registers[instr.second_register] + (int)instr.immediate] = registers[instr.first_register];
+    memcpy(memory + registers[instr.second_register] + (int)instr.immediate, &registers[instr.first_register], 4);
     return program_counter + 4;
 
   case movl_imm_reg:
@@ -172,7 +172,6 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     result = 0x00000000;
     r2 = registers[instr.second_register];
     r1 = registers[instr.first_register];
-    // printf("r1: %x, r2: %x, res: %x\n", r1, r2, (unsigned int)r2-r1);
     // unsigned overflow, CF
     if ((unsigned int)r2 < (unsigned int)r1) {
       result = result | 0x1;
@@ -186,7 +185,7 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
       result = result | 0x80;
     }
     // signed overflow, OF
-    if ((r1 < 0 && r2 > INT_MAX + r1) || (r1 > 0 && r2 < -INT_MAX + r1)) {
+    if (((long)r2 - (long)r1 > (long)0x7FFFFFFF) || ((long)r2 - (long)r1 < -(long)0x7FFFFFFF)) {
       result = result | 0x800;
     }
     registers[0] = result;
@@ -228,27 +227,28 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
 
   case call:
     registers[8] -= 4;
-    memory[registers[8]] = program_counter + 4;
+    program_counter += 4;
+    memcpy(memory + registers[8], &program_counter, 4);
     program_counter += (int)instr.immediate;
-    return program_counter + 4;
+    return program_counter;
 
   case ret:
     if (registers[8] == 1024) {
-      return -1;
+      return 0xFFFFFFFF;
     }
     else {
-      program_counter = memory[registers[8]];
+      memcpy(&program_counter, memory + registers[8], 4);
       registers[8] += 4;
     }
     return program_counter;
 
   case pushl:
     registers[8] -= 4;
-    memory[registers[8]] = registers[instr.first_register];
+    memcpy(memory + registers[8], &registers[instr.first_register], 4);
     return program_counter + 4;
 
   case popl:
-    registers[instr.first_register] = memory[registers[8]];
+    memcpy(&registers[instr.first_register], memory + registers[8], 4);
     registers[8] += 4;
     break;
 
