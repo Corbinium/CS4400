@@ -1,1 +1,6 @@
 Crikey! I have lost my mojo!
+1 2 4 8 16 32
+0 s 748
+13 3
+BBBBBB
+2 1 4 5 6 3
