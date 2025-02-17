@@ -49,6 +49,83 @@ void naive_complex(int dim, pixel *src, pixel *dest)
     }
 }
 
+char precalculate_complex_descr[] = "precalculate_complex: Pre-calculate the values of the complex kernel";
+void precalculate_complex(int dim, pixel *src, pixel *dest)
+{
+  int i, j;
+
+  int srcI, destI;
+  short gray;
+
+  for(i = 0; i < dim; i++)
+    for(j = 0; j < dim; j++)
+    {
+      srcI = RIDX(i, j, dim);
+      destI = RIDX(dim - j - 1, dim - i - 1, dim);
+      gray = (short)src[srcI].red;
+      gray += (short)src[srcI].green;
+      gray += (short)src[srcI].blue;
+      gray /= 3;
+
+      dest[destI].red = gray;
+      dest[destI].green = gray;
+      dest[destI].blue = gray;
+    }
+}
+
+void tileAdjustable_complex(int dim, pixel *src, pixel *dest, int w)
+{
+  int i, j;
+  int ii, jj;
+
+  for(i = 0; i < dim; i += w)
+    for(j = 0; j < dim; j += w)
+    {
+      for(ii = i; ii < i + w; ii++) {
+        for(jj = j; j < j+w; j++) {
+
+          dest[RIDX(dim - jj - 1, dim - ii - 1, dim)].red = ((int)src[RIDX(ii, jj, dim)].red +
+              (int)src[RIDX(ii, jj, dim)].green +
+              (int)src[RIDX(ii, jj, dim)].blue) / 3;
+
+          dest[RIDX(dim - jj - 1, dim - ii - 1, dim)].green = ((int)src[RIDX(ii, jj, dim)].red +
+              (int)src[RIDX(ii, jj, dim)].green +
+              (int)src[RIDX(ii, jj, dim)].blue) / 3;
+
+          dest[RIDX(dim - jj - 1, dim - ii - 1, dim)].blue = ((int)src[RIDX(ii, jj, dim)].red +
+              (int)src[RIDX(ii, jj, dim)].green +
+              (int)src[RIDX(ii, jj, dim)].blue) / 3;
+
+        }
+      }
+    }
+}
+
+char tile32_complex_descr[] = "tile32_complex: tile the loop of the naive implementation with w=32";
+void tile32_complex(int dim, pixel *src, pixel *dest)
+{
+  tileAdjustable_complex(dim, src, dest, 32);
+}
+
+char tile16_complex_descr[] = "tile16_complex: tile the loop of the naive implementation with w=16";
+void tile16_complex(int dim, pixel *src, pixel *dest)
+{
+  tileAdjustable_complex(dim, src, dest, 16);
+}
+
+char tile08_complex_descr[] = "tile08_complex: tile the loop of the naive implementation with w=08";
+void tile08_complex(int dim, pixel *src, pixel *dest)
+{
+  tileAdjustable_complex(dim, src, dest, 8);
+}
+
+char tile04_complex_descr[] = "tile04_complex: tile the loop of the naive implementation with w=04";
+void tile04_complex(int dim, pixel *src, pixel *dest)
+{
+  tileAdjustable_complex(dim, src, dest, 4);
+}
+
+
 
 /* 
  * complex - Your current working version of complex
@@ -57,7 +134,7 @@ void naive_complex(int dim, pixel *src, pixel *dest)
 char complex_descr[] = "complex: Current working version";
 void complex(int dim, pixel *src, pixel *dest)
 {
-  naive_complex(dim, src, dest);
+  precalculate_complex(dim, src, dest);
 }
 
 /*********************************************************************
@@ -70,6 +147,11 @@ void complex(int dim, pixel *src, pixel *dest)
 
 void register_complex_functions() {
   add_complex_function(&complex, complex_descr);
+  // add_complex_function(&precalculate_complex, precalculate_complex_descr);
+  // add_complex_function(&tile32_complex, tile32_complex_descr);
+  // add_complex_function(&tile16_complex, tile16_complex_descr);
+  // add_complex_function(&tile08_complex, tile08_complex_descr);
+  // add_complex_function(&tile04_complex, tile04_complex_descr);
   add_complex_function(&naive_complex, naive_complex_descr);
 }
 
