@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Werror -O2
+CFLAGS = -Wall -Werror -O2 -Wno-error=attributes
 LIBS = -lm
 
 OBJS = driver.o kernels.o fcyc.o clock.o
