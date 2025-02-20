@@ -205,24 +205,35 @@ static pixel weighted_combo(int dim, int i, int j, pixel *src)
 
 __attribute__((always_inline)) static pixel weighted_combo_9square(int dim, int i, int j, pixel *src) 
 {
-  int i0, i1, i2;
+  int i00, i01, i02, i10, i11, i12, i20, i21, i22;
   pixel current_pixel;
   int red, green, blue;
-  red = green = blue = 0;
 
-  i0 = RIDX(i, j, dim);
-  i1 = RIDX(i+1, j, dim);
-  i2 = RIDX(i+2, j, dim);
+  i00 = RIDX(i, j, dim);
+  i01 = i00+1;
+  i02 = i00+2;
+  i10 = i00+dim;
+  i11 = i10+1;
+  i12 = i10+2;
+  i20 = i10+dim;
+  i21 = i20+1;
+  i22 = i20+2;
 
-  red = (src[i0].red + src[i0+1].red + src[i0+2].red +
-         src[i1].red + src[i1+1].red + src[i1+2].red +
-         src[i2].red + src[i2+1].red + src[i2+2].red) / 9;
-  green = (src[i0].green + src[i0+1].green + src[i0+2].green +
-           src[i1].green + src[i1+1].green + src[i1+2].green +
-           src[i2].green + src[i2+1].green + src[i2+2].green) / 9;
-  blue = (src[i0].blue + src[i0+1].blue + src[i0+2].blue +
-          src[i1].blue + src[i1+1].blue + src[i1+2].blue +
-          src[i2].blue + src[i2+1].blue + src[i2+2].blue) / 9;
+  red = src[i00].red + src[i01].red + src[i02].red;
+  green = src[i00].green + src[i01].green + src[i02].green;
+  blue = src[i00].blue + src[i01].blue + src[i02].blue;
+
+  red += src[i10].red + src[i11].red + src[i12].red;
+  green += src[i10].green + src[i11].green + src[i12].green;
+  blue += src[i10].blue + src[i11].blue + src[i12].blue;
+
+  red += src[i20].red + src[i21].red + src[i22].red;
+  green += src[i20].green + src[i21].green + src[i22].green;
+  blue += src[i20].blue + src[i21].blue + src[i22].blue;
+
+  red = red / 9;
+  green = green / 9;
+  blue = blue / 9;
 
   current_pixel.red = (unsigned short) red;
   current_pixel.green = (unsigned short) green;
@@ -239,7 +250,7 @@ __attribute__((always_inline)) static pixel weighted_combo_4square(int dim, int 
   red = green = blue = 0;
 
   i0 = RIDX(i, j, dim);
-  i1 = RIDX(i+1, j, dim);
+  i1 = i0+dim;
 
   red = (src[i0].red + src[i0+1].red +
          src[i1].red + src[i1+1].red) / 4;
@@ -263,8 +274,8 @@ __attribute__((always_inline)) static pixel weighted_combo_6rectRight(int dim, i
   red = green = blue = 0;
 
   i0 = RIDX(i, j, dim);
-  i1 = RIDX(i+1, j, dim);
-  i2 = RIDX(i+2, j, dim);
+  i1 = i0+dim;
+  i2 = i0+dim+dim;
 
   red = (src[i0].red + src[i0+1].red +
          src[i1].red + src[i1+1].red +
@@ -291,8 +302,8 @@ __attribute__((always_inline)) static pixel weighted_combo_3rectRight(int dim, i
   red = green = blue = 0;
 
   i0 = RIDX(i, j, dim);
-  i1 = RIDX(i+1, j, dim);
-  i2 = RIDX(i+2, j, dim);
+  i1 = i0+dim;
+  i2 = i0+dim+dim;
 
   red = (src[i0].red +
          src[i1].red +
@@ -319,7 +330,7 @@ __attribute__((always_inline)) static pixel weighted_combo_2rectRight(int dim, i
   red = green = blue = 0;
 
   i0 = RIDX(i, j, dim);
-  i1 = RIDX(i+1, j, dim);
+  i1 = i0+dim;
 
   red = (src[i0].red +
          src[i1].red) / 2;
@@ -343,7 +354,7 @@ __attribute__((always_inline)) static pixel weighted_combo_6rectDown(int dim, in
   red = green = blue = 0;
 
   i0 = RIDX(i, j, dim);
-  i1 = RIDX(i+1, j, dim);
+  i1 = i0+dim;
 
   red = (src[i0].red + src[i0+1].red + src[i0+2].red +
          src[i1].red + src[i1+1].red + src[i1+2].red) / 6;
@@ -470,26 +481,20 @@ char tile_motion_descr[] = "tile_motion: Implementation that separates the edge 
 void tile_motion(int dim, pixel *src, pixel *dst) 
 {
   int i, j;
+  int index;
     
-  for (i = 0; i < dim-2; i += 2) {
-    for (j = 0; j < dim-2; j += 2) {
+  for (i = 0; i < dim-2; i++) {
+    for (j = 0; j < dim-2; j++) {
       dst[RIDX(i, j, dim)] = weighted_combo_9square(dim, i, j, src);
-      dst[RIDX(i, j+1, dim)] = weighted_combo_9square(dim, i, j+1, src);
-      dst[RIDX(i+1, j, dim)] = weighted_combo_9square(dim, i+1, j, src);
-      dst[RIDX(i+1, j+1, dim)] = weighted_combo_9square(dim, i+1, j+1, src);
     }
     dst[RIDX(i, j, dim)] = weighted_combo_6rectRight(dim, i, j, src);
     dst[RIDX(i, j+1, dim)] = weighted_combo_3rectRight(dim, i, j+1, src);
-    dst[RIDX(i+1, j, dim)] = weighted_combo_6rectRight(dim, i+1, j, src);
-    dst[RIDX(i+1, j+1, dim)] = weighted_combo_3rectRight(dim, i+1, j+1, src);
   }
   
   i = dim-2;
-  for (j = 0; j < dim-2; j += 2) {
+  for (j = 0; j < dim-2; j++) {
     dst[RIDX(i, j, dim)] = weighted_combo_6rectDown(dim, i, j, src);
     dst[RIDX(i+1, j, dim)] = weighted_combo_3rectDown(dim, i+1, j, src);
-    dst[RIDX(i, j+1, dim)] = weighted_combo_6rectDown(dim, i, j+1, src);
-    dst[RIDX(i+1, j+1, dim)] = weighted_combo_3rectDown(dim, i+1, j+1, src);
   }
 
   i = dim-2;
