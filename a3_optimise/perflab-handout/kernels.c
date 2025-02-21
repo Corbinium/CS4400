@@ -390,8 +390,7 @@ __attribute__((always_inline)) static pixel weighted_combo_3rectDown(int dim, in
   return current_pixel;
 }
 
-__attribute__((always_inline)) static pixel weighted_combo_2rectDown(int dim, int i, int j, pixel *src) 
-{
+__attribute__((always_inline)) static pixel weighted_combo_2rectDown(int dim, int i, int j, pixel *src) {
   int i0;
   pixel current_pixel;
   int red, green, blue;
@@ -409,8 +408,6 @@ __attribute__((always_inline)) static pixel weighted_combo_2rectDown(int dim, in
   
   return current_pixel;
 }
-
-
 
 /******************************************************
  * Your different versions of the motion kernel go here
@@ -430,86 +427,51 @@ void naive_motion(int dim, pixel *src, pixel *dst)
       dst[RIDX(i, j, dim)] = weighted_combo(dim, i, j, src);
 }
 
-char edgeCase_motion_descr[] = "edgeCase_motion: Implementation that separates the edge cases out.";
-void edgeCase_motion(int dim, pixel *src, pixel *dst) 
-{
-  int i, j;
-    
-  for (i = 0; i < dim-2; i++) {
-    for (j = 0; j < dim-2; j++) {
-      dst[RIDX(i, j, dim)] = weighted_combo_9square(dim, i, j, src);
-    }
-  }
-
-  i = dim-2;
-  for (j = 0; j < dim-2; j++) {
-    dst[RIDX(i, j, dim)] = weighted_combo_6rectDown(dim, i, j, src);
-  }
-
-  i = dim-1;
-  for (j = 0; j < dim-2; j++) {
-    dst[RIDX(i, j, dim)] = weighted_combo_3rectDown(dim, i, j, src);
-  }
-
-  j = dim-2;
-  for (i = 0; i < dim-2; i++) {
-    dst[RIDX(i, j, dim)] = weighted_combo_6rectRight(dim, i, j, src);
-  }
-
-  j = dim-1;
-  for (i = 0; i < dim-2; i++) {
-    dst[RIDX(i, j, dim)] = weighted_combo_3rectRight(dim, i, j, src);
-  }
-
-  i = dim-2;
-  j = dim-2;
-  dst[RIDX(i, j, dim)] = weighted_combo_4square(dim, i, j, src);
-
-  i = dim-1;
-  j = dim-2;
-  dst[RIDX(i, j, dim)] = weighted_combo_2rectDown(dim, i, j, src);
-
-  i = dim-2;
-  j = dim-1;
-  dst[RIDX(i, j, dim)] = weighted_combo_2rectRight(dim, i, j, src);
-
-  i = RIDX(dim-1, dim-1, dim);
-  dst[i] = src[i];
-}
-
 char tile_motion_descr[] = "tile_motion: Implementation that separates the edge cases out and tiles everything.";
 void tile_motion(int dim, pixel *src, pixel *dst) 
 {
   int i, j;
-  int index;
     
-  for (i = 0; i < dim-2; i++) {
+  for (i = 0; i < dim-4; i += 4) {
     for (j = 0; j < dim-2; j++) {
       dst[RIDX(i, j, dim)] = weighted_combo_9square(dim, i, j, src);
+      dst[RIDX(i+1, j, dim)] = weighted_combo_9square(dim, i+1, j, src);
+      dst[RIDX(i+2, j, dim)] = weighted_combo_9square(dim, i+2, j, src);
+      dst[RIDX(i+3, j, dim)] = weighted_combo_9square(dim, i+3, j, src);
     }
     dst[RIDX(i, j, dim)] = weighted_combo_6rectRight(dim, i, j, src);
     dst[RIDX(i, j+1, dim)] = weighted_combo_3rectRight(dim, i, j+1, src);
+
+    dst[RIDX(i+1, j, dim)] = weighted_combo_6rectRight(dim, i+1, j, src);
+    dst[RIDX(i+1, j+1, dim)] = weighted_combo_3rectRight(dim, i+1, j+1, src);
+
+    dst[RIDX(i+2, j, dim)] = weighted_combo_6rectRight(dim, i+2, j, src);
+    dst[RIDX(i+2, j+1, dim)] = weighted_combo_3rectRight(dim, i+2, j+1, src);
+
+    dst[RIDX(i+3, j, dim)] = weighted_combo_6rectRight(dim, i+3, j, src);
+    dst[RIDX(i+3, j+1, dim)] = weighted_combo_3rectRight(dim, i+3, j+1, src);
   }
   
-  i = dim-2;
   for (j = 0; j < dim-2; j++) {
-    dst[RIDX(i, j, dim)] = weighted_combo_6rectDown(dim, i, j, src);
-    dst[RIDX(i+1, j, dim)] = weighted_combo_3rectDown(dim, i+1, j, src);
+    dst[RIDX(i, j, dim)] = weighted_combo_9square(dim, i, j, src);
+    dst[RIDX(i+1, j, dim)] = weighted_combo_9square(dim, i+1, j, src);
+    dst[RIDX(i+2, j, dim)] = weighted_combo_6rectDown(dim, i+2, j, src);
+    dst[RIDX(i+3, j, dim)] = weighted_combo_3rectDown(dim, i+3, j, src);
   }
 
-  i = dim-2;
-  j = dim-2;
-  dst[RIDX(i, j, dim)] = weighted_combo_4square(dim, i, j, src);
+  // i = dim-8;
+  // j = dim-2;
+  dst[RIDX(i, j, dim)] = weighted_combo_6rectRight(dim, i, j, src);
+  dst[RIDX(i, j+1, dim)] = weighted_combo_3rectRight(dim, i, j+1, src);
 
-  i = dim-1;
-  j = dim-2;
-  dst[RIDX(i, j, dim)] = weighted_combo_2rectDown(dim, i, j, src);
+  dst[RIDX(i+1, j, dim)] = weighted_combo_6rectRight(dim, i+1, j, src);
+  dst[RIDX(i+1, j+1, dim)] = weighted_combo_3rectRight(dim, i+1, j+1, src);
 
-  i = dim-2;
-  j = dim-1;
-  dst[RIDX(i, j, dim)] = weighted_combo_2rectRight(dim, i, j, src);
+  dst[RIDX(i+2, j, dim)] = weighted_combo_4square(dim, i+2, j, src);
+  dst[RIDX(i+2, j+1, dim)] = weighted_combo_2rectRight(dim, i+2, j+1, src);
 
-  i = RIDX(dim-1, dim-1, dim);
+  dst[RIDX(i+3, j, dim)] = weighted_combo_2rectDown(dim, i+3, j, src);
+  i = RIDX(i+3, j+1, dim);
   dst[i] = src[i];
 }
 
@@ -520,7 +482,7 @@ void tile_motion(int dim, pixel *src, pixel *dst)
 char motion_descr[] = "motion: Current working version";
 void motion(int dim, pixel *src, pixel *dst) 
 {
-  naive_motion(dim, src, dst);
+  tile_motion(dim, src, dst);
 }
 
 /********************************************************************* 
@@ -533,7 +495,6 @@ void motion(int dim, pixel *src, pixel *dst)
 
 void register_motion_functions() {
   add_motion_function(&motion, motion_descr);
-  add_motion_function(&edgeCase_motion, edgeCase_motion_descr);
-  add_motion_function(&tile_motion, tile_motion_descr);
+  // add_motion_function(&edgeCase_motion, edgeCase_motion_descr);
   add_motion_function(&naive_motion, naive_motion_descr);
 }
