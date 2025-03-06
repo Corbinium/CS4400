@@ -222,6 +222,42 @@ void eval(char *cmdline)
 
   // TODO: Execute the command(s)
   //       If cmd2 is NULL, then there is only one command
+  if (!builtin_cmd(argv1)) {
+    pid_t pid;
+    sigset_t mask, omask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGCHLD);
+    sigprocmask(SIG_BLOCK, &mask, &omask);
+
+    if ((pid = fork()) == 0) {
+      // Child process
+      setpgid(0, 0);
+
+      sigprocmask(SIG_UNBLOCK, &mask, &omask);
+      if (execve(argv1[0], argv1, environ) < 0) {
+        printf("%s: Command not found\n", argv1[0]);
+        exit(0);
+      }
+    }
+    else {
+      // Parent process
+      setpgid(pid, pid);
+
+      sigprocmask(SIG_UNBLOCK, &mask, &omask);
+      if (!bg) {
+        addjob(jobs, pid, FG, cmdline);
+        waitfg(pid);
+      }
+      else {
+        addjob(jobs, pid, BG, cmdline);
+        printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline);
+      }
+    }
+
+    if (cmd2 != NULL) {
+      // ---
+    }
+  }
 
 
   return;
@@ -301,10 +337,14 @@ int builtin_cmd(char **argv)
 {
   char *cmd = argv[0];
 
-  // TODO: Implement "quit" and "jobs" commands
-  //       "bg" and "fg" commands are partially handled here,
-  //       but you need to implement the do_bg and do_fg functions.
+  if (!strcmp(cmd, "quit")) {
+    exit(0);
+  }
 
+  if (!strcmp(cmd, "jobs")) {
+    listjobs(jobs);
+    return 1;
+  }
 
   if (!strcmp(cmd, "bg") || !strcmp(cmd, "fg")) { /* bg and fg commands */
       
@@ -343,6 +383,17 @@ int builtin_cmd(char **argv)
  */
 void do_bg(int jid) 
 {
+  struct job_t* job;
+  job = getjobjid(jobs, jid);
+  if (job == NULL) {
+    printf("%%%d: No such job\n", jid);
+    return;
+  }
+  job->state = BG;
+  printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
+  if (kill(-job->pid, SIGCONT) < 0) {
+    perror("kill (SIGCONT) failed");
+  }
   return;
 }
 
@@ -351,6 +402,17 @@ void do_bg(int jid)
  */
 void do_fg(int jid) 
 {
+  struct job_t* job;
+  job = getjobjid(jobs, jid);
+  if (job == NULL) {
+    printf("%%%d: No such job\n", jid);
+    return;
+  }
+  job->state = FG;
+  if (kill(-job->pid, SIGCONT) < 0) {
+    perror("kill (SIGCONT) failed");
+  }
+  waitfg(job->pid);
   return;
 }
 
@@ -359,7 +421,19 @@ void do_fg(int jid)
  */
 void waitfg(pid_t pid)
 {
+  sigset_t mask;
+  sigemptyset(&mask);
+  struct job_t *job = getjobpid(jobs, pid);
+
+  while (job->state == FG) {
+    // printf("Waiting for foreground job to finish\n");
+    sigsuspend(&mask);
+  }
+
   return;
+
+  // waitpid(pid, NULL, WUNTRACED);
+  // return;
 }
 
 /*****************
@@ -375,6 +449,16 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig) 
 {
+  pid_t res = waitpid(-1, NULL, WNOHANG | WUNTRACED);
+  if (res != -1) {
+    struct job_t *job = getjobpid(jobs, res);
+    if (job->state != ST) {
+      deletejob(jobs, res);
+    }
+  }
+  // else {
+  //   unix_error("waitpid error");
+  // }
   return;
 }
 
@@ -385,6 +469,14 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig) 
 {
+  for (int i = 0; i < MAXJOBS; i++) {
+    if (jobs[i].state == FG) {
+      printf("Job [%d] (%d) terminated by signal %d\n", jobs[i].jid, jobs[i].pid, sig);
+      kill(-jobs[i].pid, SIGINT);
+      deletejob(jobs, jobs[i].pid);
+      return;
+    }
+  }
   return;
 }
 
@@ -395,6 +487,14 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig) 
 {
+  for (int i = 0; i < MAXJOBS; i++) {
+    if (jobs[i].state == FG) {
+      printf("Job [%d] (%d) stopped by signal %d\n", jobs[i].jid, jobs[i].pid, sig);
+      jobs[i].state = ST;
+      kill(-jobs[i].pid, SIGTSTP);
+      return;
+    }
+  }
   return;
 }
 
@@ -527,17 +627,17 @@ void listjobs(struct job_t *jobs)
       printf("[%d] (%d) ", jobs[i].jid, jobs[i].pid);
       switch (jobs[i].state) {
       case BG: 
-	printf("Running ");
-	break;
+        printf("Running ");
+        break;
       case FG: 
-	printf("Foreground ");
-	break;
+        printf("Foreground ");
+        break;
       case ST: 
-	printf("Stopped ");
-	break;
+        printf("Stopped ");
+        break;
       default:
-	printf("listjobs: Internal error: job[%d].state=%d ", 
-	       i, jobs[i].state);
+	      printf("listjobs: Internal error: job[%d].state=%d ", 
+	          i, jobs[i].state);
       }
       printf("%s", jobs[i].cmdline);
     }
