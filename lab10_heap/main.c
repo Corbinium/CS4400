@@ -3,6 +3,12 @@
 #include <string.h>
 #include <sys/mman.h>
 
+#ifdef DEBUG
+  #define DEBUG_PRINT(...) printf(__VA_ARGS__)
+#else
+  #define DEBUG_PRINT(...)
+#endif
+
 static char* read_line();
 
 static void init_heap();
@@ -10,8 +16,10 @@ static void init_heap();
 static void add_string(char* s);
 static void remove_string(char* s);
 static void show_strings();
+static void check_heap();
 
 int main() {
+  DEBUG_PRINT("DEBUG_PRINT functions as intended, %d\n", 42);
   init_heap();
 
   printf("Usage:\n");
@@ -95,12 +103,17 @@ static void add_string(char* s) {
   }
 
   DATA(l) = s;
+  PREV(l) = tl;
   if(tl)
     NEXT(tl) = l;
   else
     hd = l;
   tl = l;
   NEXT(l) = NULL;
+
+  #ifdef CHECK
+    check_heap();
+  #endif
 }
 
 static void remove_string(char* s) {
@@ -110,11 +123,20 @@ static void remove_string(char* s) {
     if(!strcmp(s, DATA(l))) {
       if(PREV(l))
         NEXT(PREV(l)) = NEXT(l);
+      else 
+        hd = NEXT(l);
+
       if(NEXT(l))
         PREV(NEXT(l)) = PREV(l);
+      else 
+        tl = PREV(l);
       break;
     }
   }
+
+  #ifdef CHECK
+    check_heap();
+  #endif
 }
 
 static void show_strings() {
@@ -122,5 +144,17 @@ static void show_strings() {
 
   for(l = hd; l != NULL; l = NEXT(l)) {
     printf("%s\n", DATA(l));
+  }
+}
+
+void check_heap() {
+  void *l;
+  void *prev = NULL;
+  
+  for (l = hd; l != NULL; l = NEXT(l)) {
+    if (prev != PREV(l)) {
+      puts("[-] Error: Wrong previous pointer.");
+    }
+    prev = l;
   }
 }
