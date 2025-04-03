@@ -11,6 +11,8 @@
 #include "mm.h"
 #include "memlib.h"
 
+#define DEBUG 1
+
 /* always use 16-byte alignment */
 #define ALIGNMENT 16
 
@@ -42,18 +44,16 @@ void packHeader(struct header *p, size_t sizeForward, size_t sizeReverse, char a
   p->sizeReverse = sizeReverse;
 }
 
-void *current_avail = NULL;
-int current_avail_size = 0;
 void *current_page = NULL;
+size_t current_page_size = 0;
 
 /* 
  * mm_init - initialize the malloc package.
  */
 int mm_init(void)
 {
-  current_avail = NULL;
-  current_avail_size = 0;
   current_page = NULL;
+  current_page_size = 0;
   
   return 0;
 }
@@ -72,6 +72,7 @@ void* allocate_new_page(size_t size) {
   packHeader(terminator, 0, newsize-sizeof(struct header), 0);
   
   current_page = p;
+  current_page_size = newsize;
 }
 
 /* 
@@ -100,7 +101,15 @@ void *mm_malloc(size_t size)
           packHeader(newBlock, newSize2, newSize1, 0);
           packHeader(next, next->sizeForward, newSize2, 1);
           packHeader(p, newSize1, p->sizeReverse, 1);
+
+          #ifdef DEBUG
+            check_implicit_cycle(GET_PAYLOAD(p));
+          #endif
         }
+
+        #ifdef DEBUG
+          check_implicit_list(GET_PAYLOAD(p));
+        #endif
 
         return GET_PAYLOAD(p);
       }
@@ -117,6 +126,44 @@ void *mm_malloc(size_t size)
  */
 void mm_free(void *ptr)
 {
+  struct header *p = GET_HEADER(ptr);
+
+  struct header *next = GET_NEXT(p);
+  if (!IS_TERMINATOR(next) && !GET_ALLOC(next)) {
+    struct header *nextNext = GET_NEXT(next);
+    size_t newSize = GET_SIZE(p) + GET_SIZE(next);
+    packHeader(p, newSize, p->sizeReverse, 0);
+    packHeader(nextNext, nextNext->sizeForward, newSize, GET_ALLOC(nextNext));
+    #ifdef DEBUG
+      check_implicit_cycle(GET_PAYLOAD(p));
+    #endif
+  }
+
+  if (!IS_SENTINEL(p)) {
+    if (!GET_ALLOC(GET_PREV(p))) {
+      p = GET_PREV(p);
+      struct header *next = GET_NEXT(p);
+      struct header *nextNext = GET_NEXT(next);
+      size_t newSize = GET_SIZE(p) + GET_SIZE(next);
+      packHeader(p, newSize, p->sizeReverse, 0);
+      packHeader(nextNext, nextNext->sizeForward, newSize, GET_ALLOC(nextNext));
+      #ifdef DEBUG
+        check_implicit_cycle(GET_PAYLOAD(p));
+      #endif
+    }
+  }
+
+  #ifdef DEBUG
+    check_implicit_list(GET_PAYLOAD(p));
+  #endif
+
+  if (IS_SENTINEL(p) && IS_TERMINATOR(GET_NEXT(p))) {
+    if (p == current_page) {
+      current_page = NULL;
+      current_page_size = 0;
+    }
+    mem_unmap(p, p->sizeForward + sizeof(struct header));
+  }
 }
 
 
@@ -135,8 +182,14 @@ void check_implicit_list(void *currentBlock) {
     if (prev != NULL && GET_PREV(p) != prev) {
       printf("Error: previous pointer does not point to the correct block\n");
     }
+    if (!GET_ALLOC(prev) && !GET_ALLOC(p)) {
+      printf("Error: two consecutive free blocks moving forward\n");
+    }
     prev = p;
     p = GET_NEXT(p);
+  }
+  if (prev != NULL && GET_PREV(p) != prev) {
+    printf("Error: previous pointer does not point to the correct block\n");
   }
 
   while (p->sizeReverse != 0) {
@@ -146,7 +199,28 @@ void check_implicit_list(void *currentBlock) {
     if (prev != NULL && GET_NEXT(p) != prev) {
       printf("Error: next pointer does not point to the correct block\n");
     }
+    if (!GET_ALLOC(p) && !GET_ALLOC(prev)) {
+      printf("Error: two consecutive free blocks moving backward\n");
+    }
     prev = p;
     p = GET_PREV(p);
+  }
+  if (prev != NULL && GET_NEXT(p) != prev) {
+    printf("Error: next pointer does not point to the correct block\n");
+  }
+}
+
+void check_implicit_cycle(void *currentBlock) {
+  struct header *p = GET_HEADER(currentBlock);
+  struct header *start = p;
+
+  p = GET_PREV(GET_NEXT(p));
+  if (p != start) {
+    printf("Error: implicit list is not forward circular\n");
+  }
+
+  p = GET_NEXT(GET_PREV(p));
+  if (p != start) {
+    printf("Error: implicit list is not backward circular\n");
   }
 }
