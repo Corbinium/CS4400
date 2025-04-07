@@ -28,14 +28,14 @@ struct header {
 };
 
 /* Given a payload pointer get the header pointer */
-#define GET_HEADER(p) ((struct header*)((char *)(p) - sizeof(struct header)))
+#define GET_HEADER(p) ((struct header*)((void*)(p) - sizeof(struct header)))
 
 /* Given a header pointer do x */
-#define GET_SIZE(p) ((((struct header*)p)->sizeForward & ~0xF) - sizeof(struct header))
-#define GET_NEXT(p) (p + (((struct header*)p)->sizeForward & ~0xF))
-#define GET_PREV(p) (p - ((struct header*)p)->sizeReverse) 
+#define GET_SIZE(p) ((size_t)((void*)(((struct header*)p)->sizeForward & ~0xF) - sizeof(struct header)))
+#define GET_NEXT(p) ((void*)p + (((struct header*)p)->sizeForward & ~0xF))
+#define GET_PREV(p) ((void*)p - ((struct header*)p)->sizeReverse) 
 #define GET_ALLOC(p) (((struct header*)p)->sizeForward & 0x1)
-#define GET_PAYLOAD(p) ((void*)(p + sizeof(struct header)))
+#define GET_PAYLOAD(p) ((void*)((void*)p + sizeof(struct header)))
 #define IS_TERMINATOR(p) (((struct header*)p)->sizeForward == 0)
 #define IS_SENTINEL(p) (((struct header*)p)->sizeReverse == 0)
 
@@ -43,6 +43,9 @@ void packHeader(struct header *p, size_t sizeForward, size_t sizeReverse, char a
   p->sizeForward = sizeForward | (alloc & 0x1);
   p->sizeReverse = sizeReverse;
 }
+
+void check_implicit_list(void *currentBlock);
+void check_implicit_cycle(void *currentBlock);
 
 void *current_page = NULL;
 size_t current_page_size = 0;
@@ -58,11 +61,11 @@ int mm_init(void)
   return 0;
 }
 
-void* allocate_new_page(size_t size) {
+void allocate_new_page(size_t size) {
   size_t newsize = PAGE_ALIGN(size);
   void *p = mem_map(newsize);
   if (p == NULL) {
-    return NULL;
+    return;
   }
   
   struct header *sentinal = (struct header *)p;
@@ -90,11 +93,11 @@ void *mm_malloc(size_t size)
 
   p = (struct header*)current_page;
   while (1) {
-    while (~IS_TERMINATOR(p)) {
-      if (~GET_ALLOC(p) && GET_SIZE(p) >= newsize) {
+    while (!IS_TERMINATOR(p)) {
+      if (!GET_ALLOC(p) && GET_SIZE(p) >= newsize) {
         if (GET_SIZE(p) - newsize > sizeof(struct header)) {
           struct header *next = GET_NEXT(p);
-          struct header *newBlock = (struct header *)(p + newsize + sizeof(struct header));
+          struct header *newBlock = (struct header *)((void*)p + newsize + sizeof(struct header));
 
           size_t newSize1 = newsize + sizeof(struct header);
           size_t newSize2 = GET_SIZE(p) - newsize;
@@ -173,10 +176,11 @@ void mm_free(void *ptr)
 
 void check_implicit_list(void *currentBlock) {
   struct header *p = GET_HEADER(currentBlock);
+  struct header *start = p;
 
-  struct header *prev = NULL;
+  void *prev = NULL;
   while (p->sizeForward != 0) {
-    if (p->sizeForward % 16 != 0) {
+    if ((p->sizeForward & ~0xf) % 16 != 0) {
       printf("Error: sizeForward is not aligned to 16 bytes\n");
     }
     if (prev != NULL && GET_PREV(p) != prev) {
@@ -208,6 +212,23 @@ void check_implicit_list(void *currentBlock) {
   if (prev != NULL && GET_NEXT(p) != prev) {
     printf("Error: next pointer does not point to the correct block\n");
   }
+
+  while (p != start) {
+    if ((p->sizeForward & ~0xf) % 16 != 0) {
+      printf("Error: sizeForward is not aligned to 16 bytes\n");
+    }
+    if (prev != NULL && GET_PREV(p) != prev) {
+      printf("Error: previous pointer does not point to the correct block\n");
+    }
+    if (!GET_ALLOC(prev) && !GET_ALLOC(p)) {
+      printf("Error: two consecutive free blocks moving forward\n");
+    }
+    prev = p;
+    p = GET_NEXT(p);
+  }
+  if (prev != NULL && GET_PREV(p) != prev) {
+    printf("Error: previous pointer does not point to the correct block\n");
+  }
 }
 
 void check_implicit_cycle(void *currentBlock) {
@@ -219,8 +240,10 @@ void check_implicit_cycle(void *currentBlock) {
     printf("Error: implicit list is not forward circular\n");
   }
 
-  p = GET_NEXT(GET_PREV(p));
-  if (p != start) {
-    printf("Error: implicit list is not backward circular\n");
+  if (!IS_SENTINEL(p)) {
+    p = GET_NEXT(GET_PREV(p));
+    if (p != start) {
+      printf("Error: implicit list is not backward circular\n");
+    }
   }
 }
