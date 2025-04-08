@@ -182,57 +182,61 @@ void check_implicit_list(void *currentBlock) {
   p = GET_NEXT(p);
   while (p->sizeForward != 0) {
     if ((p->sizeForward & ~0xf) % 16 != 0) {
-      printf("Error: sizeForward is not aligned to 16 bytes\np: %p, prev: %p\n", p, prev);
+      printf("Error: sizeForward is not aligned to 16 bytes\n\tp: %p, prev: %p\n", p, prev);
     }
     if (GET_PREV(p) != prev) {
-      printf("Error: previous pointer does not point to the correct block\np: %p, prev: %p\n", p, prev);
+      printf("Error: previous pointer does not point to the correct block\n\tp: %p, prev: %p\n", p, prev);
     }
     if (!GET_ALLOC(prev) && !GET_ALLOC(p)) {
-      printf("Error: two consecutive free blocks moving forward\np: %p, prev: %p\n", p, prev);
+      printf("Error: two consecutive free blocks moving forward\n\tp: %p, prev: %p\n", p, prev);
     }
     prev = p;
     p = GET_NEXT(p);
   }
   if (GET_PREV(p) != prev) {
-    printf("Error: previous pointer does not point to the correct block\np: %p, prev: %p\n", p, prev);
+    printf("Error: previous pointer does not point to the correct block\n\tp: %p, prev: %p\n", p, prev);
   }
 
+  prev = p;
+  p = GET_PREV(p);
   while (p->sizeReverse != 0) {
     if (p->sizeReverse % 16 != 0) {
-      printf("Error: sizeReverse is not aligned to 16 bytes\np: %p, prev: %p\n", p, prev);
+      printf("Error: sizeReverse is not aligned to 16 bytes\n\tp: %p, prev: %p\n", p, prev);
     }
     if (GET_NEXT(p) != prev) {
-      printf("Error: next pointer does not point to the correct block\np: %p, prev: %p\n", p, prev);
+      printf("Error: next pointer does not point to the correct block\n\tp: %p, prev: %p\n", p, prev);
     }
-    if (!GET_ALLOC(p) && !GET_ALLOC(prev)) {
-      printf("Error: two consecutive free blocks moving backward\np: %p, prev: %p\n", p, prev);
+    if (((struct header*)prev)->sizeForward != 0 && !GET_ALLOC(p) && !GET_ALLOC(prev)) {
+      printf("Error: two consecutive free blocks moving backward\n\tp: %p, prev: %p\n", p, prev);
     }
     prev = p;
     p = GET_PREV(p);
   }
   if (GET_NEXT(p) != prev) {
-    printf("Error: next pointer does not point to the correct block\np: %p, prev: %p\n", p, prev);
+    printf("Error: next pointer does not point to the correct block\n\tp: %p, prev: %p\n", p, prev);
   }
 
+  prev = p;
+  p = GET_NEXT(p);
   while (p != start) {
     if (p->sizeForward == 0) {
-      printf("Error: sizeForward is 0\np: %p, prev: %p\n", p, prev);
+      printf("Error: sizeForward is 0\n\tp: %p, prev: %p\n", p, prev);
       exit(1);
     }
     if ((p->sizeForward & ~0xf) % 16 != 0) {
-      printf("Error: sizeForward is not aligned to 16 bytes\np: %p, prev: %p\n", p, prev);
+      printf("Error: sizeForward is not aligned to 16 bytes\n\tp: %p, prev: %p\n", p, prev);
     }
     if (GET_PREV(p) != prev) {
-      printf("Error: previous pointer does not point to the correct block\np: %p, prev: %p\n", p, prev);
+      printf("Error: previous pointer does not point to the correct block\n\tp: %p, prev: %p\n", p, prev);
     }
     if (!GET_ALLOC(prev) && !GET_ALLOC(p)) {
-      printf("Error: two consecutive free blocks moving forward\np: %p, prev: %p\n", p, prev);
+      printf("Error: two consecutive free blocks moving forward\n\tp: %p, prev: %p\n", p, prev);
     }
     prev = p;
     p = GET_NEXT(p);
   }
   if (GET_PREV(p) != prev) {
-    printf("Error: previous pointer does not point to the correct block\np: %p, prev: %p\n", p, prev);
+    printf("Error: previous pointer does not point to the correct block\n\tp: %p, prev: %p\n", p, prev);
   }
 }
 
