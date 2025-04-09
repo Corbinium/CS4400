@@ -40,7 +40,7 @@ struct free_node {
 #define GET_NEXT(h) ((void*)h + (((struct header*)h)->sizeForward & ~0xF))
 #define GET_PREV(h) ((void*)h - ((struct header*)h)->sizeReverse) 
 #define GET_ALLOC(h) (((struct header*)h)->sizeForward & 0x1)
-#define SET_ALLOC(h, alloc) (((struct header*)h)->sizeForward = ((struct header*)h)->sizeForward | (alloc & 0x1))
+#define SET_ALLOC(h, alloc) (((struct header*)h)->sizeForward = (((struct header*)h)->sizeForward & ~0xF) | (alloc & 0x1))
 #define GET_PAYLOAD(h) ((void*)((void*)h + sizeof(struct header)))
 #define IS_TERMINATOR(h) (((struct header*)h)->sizeForward == 0)
 #define IS_SENTINEL(h) (((struct header*)h)->sizeReverse == 0)
@@ -110,7 +110,7 @@ void *mm_malloc(size_t size)
           struct header *newBlock = (void*)h + newSize1;
 
           pack_header(newBlock, newSize2, newSize1, 0);
-          add_free(GET_PAYLOAD(newBlock));
+          // add_free(GET_PAYLOAD(newBlock));
           pack_header(next, next->sizeForward, newSize2, GET_ALLOC(next));
           pack_header(h, newSize1, h->sizeReverse, 1);
 
@@ -140,7 +140,10 @@ void *mm_malloc(size_t size)
  */
 void mm_free(void *p)
 {
+  // printf("Freeing %p\n", p);
   struct header *h = GET_HEADER(p);
+  SET_ALLOC(h, 0);
+  // add_free(p);
 
   struct header *next = GET_NEXT(h);
   if (!IS_TERMINATOR(next) && !GET_ALLOC(next)) {
@@ -148,6 +151,7 @@ void mm_free(void *p)
     size_t newSize = GET_SIZE(h) + GET_SIZE(next) + sizeof(struct header)*2;
     pack_header(h, newSize, h->sizeReverse, 0);
     pack_header(nextNext, nextNext->sizeForward, newSize, GET_ALLOC(nextNext));
+    // remove_free(GET_PAYLOAD(next));
     #ifdef DEBUG
       check_implicit_cycle(GET_PAYLOAD(h));
     #endif
@@ -160,6 +164,7 @@ void mm_free(void *p)
     size_t newSize = GET_SIZE(h) + GET_SIZE(next) + sizeof(struct header)*2;
     pack_header(h, newSize, h->sizeReverse, 0);
     pack_header(nextNext, nextNext->sizeForward, newSize, GET_ALLOC(nextNext));
+    // remove_free(GET_PAYLOAD(next));
     #ifdef DEBUG
       check_implicit_cycle(GET_PAYLOAD(h));
     #endif
@@ -195,7 +200,7 @@ void allocate_new_page(size_t size) {
   
   struct header *sentinal = (struct header *)p;
   pack_header(sentinal, newsize-sizeof(struct header), 0, 0);
-  add_free(GET_PAYLOAD(p));
+  // add_free(GET_PAYLOAD(p));
 
   struct header *terminator = GET_NEXT(sentinal);
   pack_header(terminator, 0, newsize-sizeof(struct header), 0);
