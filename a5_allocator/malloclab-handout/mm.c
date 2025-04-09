@@ -22,11 +22,11 @@
 /* rounds up to the nearest multiple of mem_pagesize() */
 #define PAGE_ALIGN(size) (((size) + (mem_pagesize()-1)) & ~(mem_pagesize()-1))
 
+/* Structures */
 struct header {
   size_t sizeForward;
   size_t sizeReverse;
 };
-
 struct free_node {
   struct free_node *next;
   struct free_node *prev;
@@ -49,21 +49,20 @@ struct free_node {
 #define GET_PREV_FREE(f) (((struct free_node*)f)->prev)
 #define GET_NEXT_FREE(f) (((struct free_node*)f)->next)
 
-void packHeader(struct header *h, size_t sizeForward, size_t sizeReverse, char alloc) {
-  h->sizeForward = sizeForward | (alloc & 0x1);
-  h->sizeReverse = sizeReverse;
-}
-
+/* Helper Functions */
+void pack_header(struct header *h, size_t sizeForward, size_t sizeReverse, char alloc);
 void allocate_new_page(size_t size);
-
+void pack_free(struct free_node *f, struct free_node *prev, struct free_node *next);
 void add_free(void *f);
 void remove_free(void *f);
 
+/* Checker Functions */
 void check_implicit_list(void *p);
 void check_implicit_cycle(void *p);
 void check_explicit_list(void *f);
 void check_explicit_cycle(void *f);
 
+/* Global Variables */
 void *current_page = NULL;
 size_t current_page_size = 0;
 void *first_free = NULL;
@@ -79,6 +78,7 @@ int mm_init(void)
 {
   current_page = NULL;
   current_page_size = 0;
+  first_free = NULL;
   
   return 0;
 }
@@ -107,15 +107,15 @@ void *mm_malloc(size_t size)
           struct header *next = GET_NEXT(p);
           struct header *newBlock = (void*)p + newSize1;
 
-          packHeader(newBlock, newSize2, newSize1, 0);
-          packHeader(next, next->sizeForward, newSize2, GET_ALLOC(next));
-          packHeader(p, newSize1, p->sizeReverse, 1);
+          pack_header(newBlock, newSize2, newSize1, 0);
+          pack_header(next, next->sizeForward, newSize2, GET_ALLOC(next));
+          pack_header(p, newSize1, p->sizeReverse, 1);
 
           #ifdef DEBUG
             check_implicit_cycle(GET_PAYLOAD(newBlock));
           #endif
         }
-        packHeader(p, p->sizeForward, p->sizeReverse, 1);
+        pack_header(p, p->sizeForward, p->sizeReverse, 1);
 
         #ifdef DEBUG
           check_implicit_list(GET_PAYLOAD(p));
@@ -143,8 +143,8 @@ void mm_free(void *ptr)
   if (!IS_TERMINATOR(next) && !GET_ALLOC(next)) {
     struct header *nextNext = GET_NEXT(next);
     size_t newSize = GET_SIZE(p) + GET_SIZE(next) + sizeof(struct header)*2;
-    packHeader(p, newSize, p->sizeReverse, 0);
-    packHeader(nextNext, nextNext->sizeForward, newSize, GET_ALLOC(nextNext));
+    pack_header(p, newSize, p->sizeReverse, 0);
+    pack_header(nextNext, nextNext->sizeForward, newSize, GET_ALLOC(nextNext));
     #ifdef DEBUG
       check_implicit_cycle(GET_PAYLOAD(p));
     #endif
@@ -155,8 +155,8 @@ void mm_free(void *ptr)
     struct header *next = GET_NEXT(p);
     struct header *nextNext = GET_NEXT(next);
     size_t newSize = GET_SIZE(p) + GET_SIZE(next) + sizeof(struct header)*2;
-    packHeader(p, newSize, p->sizeReverse, 0);
-    packHeader(nextNext, nextNext->sizeForward, newSize, GET_ALLOC(nextNext));
+    pack_header(p, newSize, p->sizeReverse, 0);
+    pack_header(nextNext, nextNext->sizeForward, newSize, GET_ALLOC(nextNext));
     #ifdef DEBUG
       check_implicit_cycle(GET_PAYLOAD(p));
     #endif
@@ -178,6 +178,11 @@ void mm_free(void *ptr)
 /********************************************************
  * Helper Functions
  ********************************************************/
+void pack_header(struct header *h, size_t sizeForward, size_t sizeReverse, char alloc) {
+  h->sizeForward = sizeForward | (alloc & 0x1);
+  h->sizeReverse = sizeReverse;
+}
+
 void allocate_new_page(size_t size) {
   size_t newsize = PAGE_ALIGN(size + sizeof(struct header)*2);
   void *p = mem_map(newsize);
@@ -186,16 +191,37 @@ void allocate_new_page(size_t size) {
   }
   
   struct header *sentinal = (struct header *)p;
-  packHeader(sentinal, newsize-sizeof(struct header), 0, 0);
+  pack_header(sentinal, newsize-sizeof(struct header), 0, 0);
 
   struct header *terminator = GET_NEXT(sentinal);
-  packHeader(terminator, 0, newsize-sizeof(struct header), 0);
+  pack_header(terminator, 0, newsize-sizeof(struct header), 0);
   
   current_page = p;
   current_page_size = newsize;
 }
 
-void add_free(void *f) {}
+void pack_free(struct free_node *f, struct free_node *prev, struct free_node *next) {
+  f->prev = prev;
+  f->next = next;
+  if (prev != NULL) {
+    prev->next = f;
+  }
+  if (next != NULL) {
+    next->prev = f;
+  }
+}
+
+void add_free(void *f) {
+  if (first_free == NULL) {
+    first_free = f;
+    pack_free(f, NULL, NULL);
+  }
+  else {
+    struct free_node *next = first_free;
+    pack_free(f, NULL, next);
+    first_free = f;
+  }
+}
 
 void remove_free(void *f) {}
 
@@ -203,88 +229,88 @@ void remove_free(void *f) {}
  * Heap Checkers
  ********************************************************/
 
-void check_implicit_list(void *currentBlock) {
-  struct header *p = GET_HEADER(currentBlock);
-  struct header *start = p;
+void check_implicit_list(void *p) {
+  struct header *h = GET_HEADER(p);
+  struct header *start = h;
 
-  void *prev = p;
-  p = GET_NEXT(p);
-  while (p->sizeForward != 0) {
-    if ((p->sizeForward & ~0xf) % 16 != 0) {
-      printf("Error: sizeForward is not aligned to 16 bytes\n\tp: %p, prev: %p\n", p, prev);
+  void *prev = h;
+  h = GET_NEXT(h);
+  while (h->sizeForward != 0) {
+    if ((h->sizeForward & ~0xf) % 16 != 0) {
+      printf("Error: sizeForward is not aligned to 16 bytes\n\tp: %p, prev: %p\n", h, prev);
     }
-    if (GET_PREV(p) != prev) {
-      printf("Error: previous pointer does not point to the correct block\n\tp: %p, prev: %p\n", p, prev);
+    if (GET_PREV(h) != prev) {
+      printf("Error: previous pointer does not point to the correct block\n\tp: %p, prev: %p\n", h, prev);
     }
-    if (!GET_ALLOC(prev) && !GET_ALLOC(p)) {
-      printf("Error: two consecutive free blocks moving forward\n\tp: %p, prev: %p\n", p, prev);
+    if (!GET_ALLOC(prev) && !GET_ALLOC(h)) {
+      printf("Error: two consecutive free blocks moving forward\n\tp: %p, prev: %p\n", h, prev);
     }
-    prev = p;
-    p = GET_NEXT(p);
+    prev = h;
+    h = GET_NEXT(h);
   }
-  if (GET_PREV(p) != prev) {
-    printf("Error: previous pointer does not point to the correct block\n\tp: %p, prev: %p\n", p, prev);
-  }
-
-  prev = p;
-  p = GET_PREV(p);
-  while (p->sizeReverse != 0) {
-    if (p->sizeReverse % 16 != 0) {
-      printf("Error: sizeReverse is not aligned to 16 bytes\n\tp: %p, prev: %p\n", p, prev);
-    }
-    if (GET_NEXT(p) != prev) {
-      printf("Error: next pointer does not point to the correct block\n\tp: %p, prev: %p\n", p, prev);
-    }
-    if (((struct header*)prev)->sizeForward != 0 && !GET_ALLOC(p) && !GET_ALLOC(prev)) {
-      printf("Error: two consecutive free blocks moving backward\n\tp: %p, prev: %p\n", p, prev);
-    }
-    prev = p;
-    p = GET_PREV(p);
-  }
-  if (GET_NEXT(p) != prev) {
-    printf("Error: next pointer does not point to the correct block\n\tp: %p, prev: %p\n", p, prev);
+  if (GET_PREV(h) != prev) {
+    printf("Error: previous pointer does not point to the correct block\n\tp: %p, prev: %p\n", h, prev);
   }
 
-  if (p == start) {
+  prev = h;
+  h = GET_PREV(h);
+  while (h->sizeReverse != 0) {
+    if (h->sizeReverse % 16 != 0) {
+      printf("Error: sizeReverse is not aligned to 16 bytes\n\tp: %p, prev: %p\n", h, prev);
+    }
+    if (GET_NEXT(h) != prev) {
+      printf("Error: next pointer does not point to the correct block\n\tp: %p, prev: %p\n", h, prev);
+    }
+    if (((struct header*)prev)->sizeForward != 0 && !GET_ALLOC(h) && !GET_ALLOC(prev)) {
+      printf("Error: two consecutive free blocks moving backward\n\tp: %p, prev: %p\n", h, prev);
+    }
+    prev = h;
+    h = GET_PREV(h);
+  }
+  if (GET_NEXT(h) != prev) {
+    printf("Error: next pointer does not point to the correct block\n\tp: %p, prev: %p\n", h, prev);
+  }
+
+  if (h == start) {
     return;
   }
-  prev = p;
-  p = GET_NEXT(p);
-  while (p != start) {
-    if (p->sizeForward == 0) {
-      printf("Error: sizeForward is 0\n\tp: %p, prev: %p\n", p, prev);
+  prev = h;
+  h = GET_NEXT(h);
+  while (h != start) {
+    if (h->sizeForward == 0) {
+      printf("Error: sizeForward is 0\n\tp: %p, prev: %p\n", h, prev);
       exit(1);
     }
-    if ((p->sizeForward & ~0xf) % 16 != 0) {
-      printf("Error: sizeForward is not aligned to 16 bytes\n\tp: %p, prev: %p\n", p, prev);
+    if ((h->sizeForward & ~0xf) % 16 != 0) {
+      printf("Error: sizeForward is not aligned to 16 bytes\n\tp: %p, prev: %p\n", h, prev);
     }
-    if (GET_PREV(p) != prev) {
-      printf("Error: previous pointer does not point to the correct block\n\tp: %p, prev: %p\n", p, prev);
+    if (GET_PREV(h) != prev) {
+      printf("Error: previous pointer does not point to the correct block\n\tp: %p, prev: %p\n", h, prev);
     }
-    if (!GET_ALLOC(prev) && !GET_ALLOC(p)) {
-      printf("Error: two consecutive free blocks moving forward\n\tp: %p, prev: %p\n", p, prev);
+    if (!GET_ALLOC(prev) && !GET_ALLOC(h)) {
+      printf("Error: two consecutive free blocks moving forward\n\tp: %p, prev: %p\n", h, prev);
     }
-    prev = p;
-    p = GET_NEXT(p);
+    prev = h;
+    h = GET_NEXT(h);
   }
-  if (GET_PREV(p) != prev) {
-    printf("Error: previous pointer does not point to the correct block\n\tp: %p, prev: %p\n", p, prev);
+  if (GET_PREV(h) != prev) {
+    printf("Error: previous pointer does not point to the correct block\n\tp: %p, prev: %p\n", h, prev);
   }
 }
 
-void check_implicit_cycle(void *currentBlock) {
-  struct header *p = GET_HEADER(currentBlock);
-  struct header *start = p;
+void check_implicit_cycle(void *p) {
+  struct header *h = GET_HEADER(p);
+  struct header *start = h;
 
-  p = GET_PREV(GET_NEXT(p));
-  if (p != start) {
-    printf("Error: implicit list is not forward circular\n\tp: %p\n", p);
+  h = GET_PREV(GET_NEXT(h));
+  if (h != start) {
+    printf("Error: implicit list is not forward circular\n\tp: %p\n", h);
   }
 
-  if (!IS_SENTINEL(p)) {
-    p = GET_NEXT(GET_PREV(p));
-    if (p != start) {
-      printf("Error: implicit list is not backward circular\n\tp: %p\n", p);
+  if (!IS_SENTINEL(h)) {
+    h = GET_NEXT(GET_PREV(h));
+    if (h != start) {
+      printf("Error: implicit list is not backward circular\n\tp: %p\n", h);
     }
   }
 }
