@@ -61,7 +61,7 @@ void remove_free(void *f);
 /* Checker Functions */
 void check_implicit_list(void *p);
 void check_implicit_cycle(void *p);
-void check_explicit_list(void *f);
+void check_explicit_list();
 void check_explicit_cycle(void *f);
 
 /* Global Variables */
@@ -102,6 +102,7 @@ void *mm_malloc(size_t size)
   while (1) {
     while (!IS_TERMINATOR(h)) {
       if (!GET_ALLOC(h) && GET_SIZE(h) >= newsize) {
+        // printf("Allocating %p\n", h);
         if (GET_SIZE(h) - newsize > sizeof(struct header)) {
           size_t newSize1 = newsize + sizeof(struct header);
           size_t newSize2 = GET_SIZE(h) - newsize;
@@ -110,7 +111,7 @@ void *mm_malloc(size_t size)
           struct header *newBlock = (void*)h + newSize1;
 
           pack_header(newBlock, newSize2, newSize1, 0);
-          // add_free(GET_PAYLOAD(newBlock));
+          add_free(GET_PAYLOAD(newBlock));
           pack_header(next, next->sizeForward, newSize2, GET_ALLOC(next));
           pack_header(h, newSize1, h->sizeReverse, 1);
 
@@ -119,9 +120,11 @@ void *mm_malloc(size_t size)
           #endif
         }
         pack_header(h, h->sizeForward, h->sizeReverse, 1);
+        remove_free(GET_PAYLOAD(h));
 
         #ifdef DEBUG
           check_implicit_list(GET_PAYLOAD(h));
+          check_explicit_list();
         #endif
 
         return GET_PAYLOAD(h);
@@ -140,10 +143,10 @@ void *mm_malloc(size_t size)
  */
 void mm_free(void *p)
 {
-  // printf("Freeing %p\n", p);
   struct header *h = GET_HEADER(p);
+  // printf("Freeing %p\n", h);
   SET_ALLOC(h, 0);
-  // add_free(p);
+  add_free(p);
 
   struct header *next = GET_NEXT(h);
   if (!IS_TERMINATOR(next) && !GET_ALLOC(next)) {
@@ -151,9 +154,10 @@ void mm_free(void *p)
     size_t newSize = GET_SIZE(h) + GET_SIZE(next) + sizeof(struct header)*2;
     pack_header(h, newSize, h->sizeReverse, 0);
     pack_header(nextNext, nextNext->sizeForward, newSize, GET_ALLOC(nextNext));
-    // remove_free(GET_PAYLOAD(next));
+    remove_free(GET_PAYLOAD(next));
     #ifdef DEBUG
       check_implicit_cycle(GET_PAYLOAD(h));
+      check_explicit_cycle(GET_PAYLOAD(h));
     #endif
   }
 
@@ -164,14 +168,16 @@ void mm_free(void *p)
     size_t newSize = GET_SIZE(h) + GET_SIZE(next) + sizeof(struct header)*2;
     pack_header(h, newSize, h->sizeReverse, 0);
     pack_header(nextNext, nextNext->sizeForward, newSize, GET_ALLOC(nextNext));
-    // remove_free(GET_PAYLOAD(next));
+    remove_free(GET_PAYLOAD(next));
     #ifdef DEBUG
       check_implicit_cycle(GET_PAYLOAD(h));
+      check_explicit_cycle(GET_PAYLOAD(h));
     #endif
   }
 
   #ifdef DEBUG
     check_implicit_list(GET_PAYLOAD(h));
+    check_explicit_list();
   #endif
 
   if (IS_SENTINEL(h) && IS_TERMINATOR(GET_NEXT(h))) {
@@ -179,6 +185,7 @@ void mm_free(void *p)
       current_page = NULL;
       current_page_size = 0;
     }
+    remove_free(GET_PAYLOAD(h));
     mem_unmap(h, PAGE_ALIGN(GET_SIZE(h) + sizeof(struct header)*2));
   }
 }
@@ -200,7 +207,7 @@ void allocate_new_page(size_t size) {
   
   struct header *sentinal = (struct header *)p;
   pack_header(sentinal, newsize-sizeof(struct header), 0, 0);
-  // add_free(GET_PAYLOAD(p));
+  add_free(GET_PAYLOAD(p));
 
   struct header *terminator = GET_NEXT(sentinal);
   pack_header(terminator, 0, newsize-sizeof(struct header), 0);
@@ -227,14 +234,10 @@ void add_free(void *f) {
   }
   else {
     struct free_node *next = first_free;
+    pack_free(next, f, next->next);
     pack_free(f, NULL, next);
     first_free = f;
   }
-
-  #ifdef DEBUG
-    check_explicit_cycle(GET_PAYLOAD(f));
-    check_explicit_list(GET_PAYLOAD(f));
-  #endif
 }
 
 void remove_free(void *f) {
@@ -249,12 +252,6 @@ void remove_free(void *f) {
   if (first_free == f) {
     first_free = next;
   }
-
-  #ifdef DEBUG
-    check_explicit_cycle(GET_PAYLOAD(prev));
-    check_explicit_cycle(GET_PAYLOAD(next));
-    check_explicit_list(GET_PAYLOAD(prev));
-  #endif
 }
 
 /********************************************************
@@ -347,11 +344,13 @@ void check_implicit_cycle(void *p) {
   }
 }
 
-void check_explicit_list(void *f) {
-  struct free_node *start = (struct free_node*)f;
+void check_explicit_list() {
+  if (first_free == NULL) {
+    return;
+  }
 
-  struct free_node *prev = start;
-  struct free_node *next = GET_NEXT_FREE(start);
+  struct free_node *prev = (struct free_node*)first_free;
+  struct free_node *next = GET_NEXT_FREE(prev);
   while (next != NULL) {
     if (GET_PREV_FREE(next) != prev) {
       printf("Error: previous pointer does not point to the correct block\n\tnext: %p, prev: %p\n", next, prev);
@@ -367,15 +366,6 @@ void check_explicit_list(void *f) {
     }
     prev = next;
     next = GET_PREV_FREE(next);
-  }
-
-  next = GET_NEXT_FREE(prev);
-  while (prev != start) {
-    if (GET_PREV_FREE(next) != prev) {
-      printf("Error: previous pointer does not point to the correct block\n\tnext: %p, prev: %p\n", next, prev);
-    }
-    prev = next;
-    next = GET_NEXT_FREE(next);
   }
 }
 
