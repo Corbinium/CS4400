@@ -110,6 +110,7 @@ void *mm_malloc(size_t size)
           struct header *newBlock = (void*)h + newSize1;
 
           pack_header(newBlock, newSize2, newSize1, 0);
+          add_free(GET_PAYLOAD(newBlock));
           pack_header(next, next->sizeForward, newSize2, GET_ALLOC(next));
           pack_header(h, newSize1, h->sizeReverse, 1);
 
@@ -183,21 +184,18 @@ void mm_free(void *p)
 void pack_header(struct header *h, size_t sizeForward, size_t sizeReverse, char alloc) {
   h->sizeForward = sizeForward | alloc;
   h->sizeReverse = sizeReverse;
-
-  // if (!alloc) {
-  //   add_free(GET_PAYLOAD(h));
-  // }
 }
 
 void allocate_new_page(size_t size) {
   size_t newsize = PAGE_ALIGN(size + sizeof(struct header)*2);
   void *p = mem_map(newsize);
   if (p == NULL) {
-    return;
+    exit(1);
   }
   
   struct header *sentinal = (struct header *)p;
   pack_header(sentinal, newsize-sizeof(struct header), 0, 0);
+  add_free(GET_PAYLOAD(p));
 
   struct header *terminator = GET_NEXT(sentinal);
   pack_header(terminator, 0, newsize-sizeof(struct header), 0);
@@ -227,6 +225,11 @@ void add_free(void *f) {
     pack_free(f, NULL, next);
     first_free = f;
   }
+
+  #ifdef DEBUG
+    check_explicit_cycle(GET_PAYLOAD(f));
+    check_explicit_list(GET_PAYLOAD(f));
+  #endif
 }
 
 void remove_free(void *f) {
@@ -241,6 +244,12 @@ void remove_free(void *f) {
   if (first_free == f) {
     first_free = next;
   }
+
+  #ifdef DEBUG
+    check_explicit_cycle(GET_PAYLOAD(prev));
+    check_explicit_cycle(GET_PAYLOAD(next));
+    check_explicit_list(GET_PAYLOAD(prev));
+  #endif
 }
 
 /********************************************************
