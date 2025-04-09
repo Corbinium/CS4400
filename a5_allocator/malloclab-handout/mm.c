@@ -11,8 +11,6 @@
 #include "mm.h"
 #include "memlib.h"
 
-#define DEBUG 1
-
 /* always use 16-byte alignment */
 #define ALIGNMENT 16
 
@@ -54,6 +52,7 @@ struct free_node {
 /* Helper Functions */
 void pack_header(struct header *h, size_t sizeForward, size_t sizeReverse, char alloc);
 void allocate_new_page(size_t size);
+char seperate_page(struct header *h, size_t size);
 void pack_free(struct free_node *f, struct free_node *prev, struct free_node *next);
 void add_free(void *f);
 void remove_free(void *f);
@@ -65,8 +64,6 @@ void check_explicit_list();
 void check_explicit_cycle(void *f);
 
 /* Global Variables */
-void *current_page = NULL;
-size_t current_page_size = 0;
 void *first_free = NULL;
 
 /**********************************************************
@@ -78,8 +75,6 @@ void *first_free = NULL;
  */
 int mm_init(void)
 {
-  current_page = NULL;
-  current_page_size = 0;
   first_free = NULL;
   
   return 0;
@@ -94,48 +89,23 @@ void *mm_malloc(size_t size)
   int newsize = ALIGN(size);
   struct header *h;
 
-  if (current_page == NULL) {
+  if (first_free == NULL) {
     allocate_new_page(newsize);
   }
 
-  h = (struct header*)current_page;
-  while (1) {
-    while (!IS_TERMINATOR(h)) {
-      if (!GET_ALLOC(h) && GET_SIZE(h) >= newsize) {
-        // printf("Allocating %p\n", h);
-        if (GET_SIZE(h) - newsize > sizeof(struct header)) {
-          size_t newSize1 = newsize + sizeof(struct header);
-          size_t newSize2 = GET_SIZE(h) - newsize;
-
-          struct header *next = GET_NEXT(h);
-          struct header *newBlock = (void*)h + newSize1;
-
-          pack_header(newBlock, newSize2, newSize1, 0);
-          add_free(GET_PAYLOAD(newBlock));
-          pack_header(next, next->sizeForward, newSize2, GET_ALLOC(next));
-          pack_header(h, newSize1, h->sizeReverse, 1);
-
-          #ifdef DEBUG
-            check_implicit_cycle(GET_PAYLOAD(newBlock));
-          #endif
-        }
-        pack_header(h, h->sizeForward, h->sizeReverse, 1);
-        remove_free(GET_PAYLOAD(h));
-
-        #ifdef DEBUG
-          check_implicit_list(GET_PAYLOAD(h));
-          check_explicit_list();
-        #endif
-
-        return GET_PAYLOAD(h);
-      }
-
-      h = GET_NEXT(h);
-    }
-
-    allocate_new_page(newsize);
-    h = (struct header*)current_page;
+  struct free_node *f = first_free;
+  while (f != NULL) {
+    h = GET_HEADER(f);
+    if (seperate_page(h, newsize)) { return GET_PAYLOAD(h); }
+    f = GET_NEXT_FREE(f);
   }
+
+  allocate_new_page(newsize);
+
+  h = GET_HEADER(first_free);
+  if (seperate_page(h, newsize)) { return GET_PAYLOAD(h); }
+  printf("Error: malloc failed to allocate memory\n");
+  exit(1);
 }
 
 /*
@@ -181,10 +151,6 @@ void mm_free(void *p)
   #endif
 
   if (IS_SENTINEL(h) && IS_TERMINATOR(GET_NEXT(h))) {
-    if (h == current_page) {
-      current_page = NULL;
-      current_page_size = 0;
-    }
     remove_free(GET_PAYLOAD(h));
     mem_unmap(h, PAGE_ALIGN(GET_SIZE(h) + sizeof(struct header)*2));
   }
@@ -211,9 +177,39 @@ void allocate_new_page(size_t size) {
 
   struct header *terminator = GET_NEXT(sentinal);
   pack_header(terminator, 0, newsize-sizeof(struct header), 0);
-  
-  current_page = p;
-  current_page_size = newsize;
+}
+
+char seperate_page(struct header *h, size_t size) {
+  if (GET_SIZE(h) >= size) {
+    // printf("Allocating %p\n", h);
+    if (GET_SIZE(h) - size > sizeof(struct header)) {
+      size_t newSize1 = size + sizeof(struct header);
+      size_t newSize2 = GET_SIZE(h) - size;
+
+      struct header *next = GET_NEXT(h);
+      struct header *newBlock = (void*)h + newSize1;
+
+      pack_header(newBlock, newSize2, newSize1, 0);
+      add_free(GET_PAYLOAD(newBlock));
+      pack_header(next, next->sizeForward, newSize2, GET_ALLOC(next));
+      pack_header(h, newSize1, h->sizeReverse, 1);
+
+      #ifdef DEBUG
+        check_implicit_cycle(GET_PAYLOAD(newBlock));
+      #endif
+    }
+    pack_header(h, h->sizeForward, h->sizeReverse, 1);
+    remove_free(GET_PAYLOAD(h));
+
+    #ifdef DEBUG
+      check_implicit_list(GET_PAYLOAD(h));
+      check_explicit_list();
+    #endif
+
+    return 1;
+  }
+
+  return 0;
 }
 
 void pack_free(struct free_node *f, struct free_node *prev, struct free_node *next) {
