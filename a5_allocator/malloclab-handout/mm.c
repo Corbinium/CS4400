@@ -48,6 +48,8 @@ struct free_node {
 /* Operations on explicit free list */
 #define GET_PREV_FREE(f) (((struct free_node*)f)->prev)
 #define GET_NEXT_FREE(f) (((struct free_node*)f)->next)
+#define IS_FIRST_FREE(f) (((struct free_node*)f)->prev == NULL)
+#define IS_LAST_FREE(f) (((struct free_node*)f)->next == NULL)
 
 /* Helper Functions */
 void pack_header(struct header *h, size_t sizeForward, size_t sizeReverse, char alloc);
@@ -179,8 +181,12 @@ void mm_free(void *ptr)
  * Helper Functions
  ********************************************************/
 void pack_header(struct header *h, size_t sizeForward, size_t sizeReverse, char alloc) {
-  h->sizeForward = sizeForward | (alloc & 0x1);
+  h->sizeForward = sizeForward | alloc;
   h->sizeReverse = sizeReverse;
+
+  // if (!alloc) {
+  //   add_free(GET_PAYLOAD(h));
+  // }
 }
 
 void allocate_new_page(size_t size) {
@@ -213,8 +219,8 @@ void pack_free(struct free_node *f, struct free_node *prev, struct free_node *ne
 
 void add_free(void *f) {
   if (first_free == NULL) {
-    first_free = f;
     pack_free(f, NULL, NULL);
+    first_free = f;
   }
   else {
     struct free_node *next = first_free;
@@ -223,7 +229,19 @@ void add_free(void *f) {
   }
 }
 
-void remove_free(void *f) {}
+void remove_free(void *f) {
+  struct free_node *prev = GET_PREV_FREE(f);
+  struct free_node *next = GET_NEXT_FREE(f);
+  if (prev != NULL) {
+    prev->next = next;
+  }
+  if (next != NULL) {
+    next->prev = prev;
+  }
+  if (first_free == f) {
+    first_free = next;
+  }
+}
 
 /********************************************************
  * Heap Checkers
@@ -315,6 +333,52 @@ void check_implicit_cycle(void *p) {
   }
 }
 
-void check_explicit_list(void *f) {}
+void check_explicit_list(void *f) {
+  struct free_node *start = (struct free_node*)f;
 
-void check_explicit_cycle(void *f) {}
+  struct free_node *prev = start;
+  struct free_node *next = GET_NEXT_FREE(start);
+  while (next != NULL) {
+    if (GET_PREV_FREE(next) != prev) {
+      printf("Error: previous pointer does not point to the correct block\n\tnext: %p, prev: %p\n", next, prev);
+    }
+    prev = next;
+    next = GET_NEXT_FREE(next);
+  }
+
+  next = GET_PREV_FREE(prev);
+  while (next != NULL) {
+    if (GET_NEXT_FREE(next) != prev) {
+      printf("Error: next pointer does not point to the correct block\n\tnext: %p, prev: %p\n", next, prev);
+    }
+    prev = next;
+    next = GET_PREV_FREE(next);
+  }
+
+  next = GET_NEXT_FREE(prev);
+  while (prev != start) {
+    if (GET_PREV_FREE(next) != prev) {
+      printf("Error: previous pointer does not point to the correct block\n\tnext: %p, prev: %p\n", next, prev);
+    }
+    prev = next;
+    next = GET_NEXT_FREE(next);
+  }
+}
+
+void check_explicit_cycle(void *f) {
+  struct free_node *start = (struct free_node*)f;
+
+  if (!IS_LAST_FREE(f)) {
+    f = GET_PREV_FREE(GET_NEXT_FREE(f));
+    if (f != start) {
+      printf("Error: explicit list is not forward circular\n\tf: %p\n", f);
+    }
+  }
+  
+  if (!IS_FIRST_FREE(f)) {
+    f = GET_NEXT_FREE(GET_PREV_FREE(f));
+    if (f != start) {
+      printf("Error: explicit list is not backward circular\n\tf: %p\n", f);
+    }
+  }
+}
