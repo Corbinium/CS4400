@@ -27,28 +27,50 @@ struct header {
   size_t sizeReverse;
 };
 
+struct free_node {
+  struct free_node *next;
+  struct free_node *prev;
+};
+
 /* Given a payload pointer get the header pointer */
 #define GET_HEADER(p) ((struct header*)((void*)(p) - sizeof(struct header)))
 
 /* Given a header pointer do x */
-#define GET_SIZE(p) ((size_t)((void*)(((struct header*)p)->sizeForward & ~0xF) - sizeof(struct header)))
-#define GET_NEXT(p) ((void*)p + (((struct header*)p)->sizeForward & ~0xF))
-#define GET_PREV(p) ((void*)p - ((struct header*)p)->sizeReverse) 
-#define GET_ALLOC(p) (((struct header*)p)->sizeForward & 0x1)
-#define GET_PAYLOAD(p) ((void*)((void*)p + sizeof(struct header)))
-#define IS_TERMINATOR(p) (((struct header*)p)->sizeForward == 0)
-#define IS_SENTINEL(p) (((struct header*)p)->sizeReverse == 0)
+#define GET_SIZE(h) ((size_t)((void*)(((struct header*)h)->sizeForward & ~0xF) - sizeof(struct header)))
+#define GET_NEXT(h) ((void*)h + (((struct header*)h)->sizeForward & ~0xF))
+#define GET_PREV(h) ((void*)h - ((struct header*)h)->sizeReverse) 
+#define GET_ALLOC(h) (((struct header*)h)->sizeForward & 0x1)
+#define SET_ALLOC(h, alloc) (((struct header*)h)->sizeForward = ((struct header*)h)->sizeForward | (alloc & 0x1))
+#define GET_PAYLOAD(h) ((void*)((void*)h + sizeof(struct header)))
+#define IS_TERMINATOR(h) (((struct header*)h)->sizeForward == 0)
+#define IS_SENTINEL(h) (((struct header*)h)->sizeReverse == 0)
 
-void packHeader(struct header *p, size_t sizeForward, size_t sizeReverse, char alloc) {
-  p->sizeForward = sizeForward | (alloc & 0x1);
-  p->sizeReverse = sizeReverse;
+/* Operations on explicit free list */
+#define GET_PREV_FREE(f) (((struct free_node*)f)->prev)
+#define GET_NEXT_FREE(f) (((struct free_node*)f)->next)
+
+void packHeader(struct header *h, size_t sizeForward, size_t sizeReverse, char alloc) {
+  h->sizeForward = sizeForward | (alloc & 0x1);
+  h->sizeReverse = sizeReverse;
 }
 
-void check_implicit_list(void *currentBlock);
-void check_implicit_cycle(void *currentBlock);
+void allocate_new_page(size_t size);
+
+void add_free(void *f);
+void remove_free(void *f);
+
+void check_implicit_list(void *p);
+void check_implicit_cycle(void *p);
+void check_explicit_list(void *f);
+void check_explicit_cycle(void *f);
 
 void *current_page = NULL;
 size_t current_page_size = 0;
+void *first_free = NULL;
+
+/**********************************************************
+ * Primary Functions
+ **********************************************************/
 
 /* 
  * mm_init - initialize the malloc package.
@@ -59,23 +81,6 @@ int mm_init(void)
   current_page_size = 0;
   
   return 0;
-}
-
-void allocate_new_page(size_t size) {
-  size_t newsize = PAGE_ALIGN(size);
-  void *p = mem_map(newsize);
-  if (p == NULL) {
-    return;
-  }
-  
-  struct header *sentinal = (struct header *)p;
-  packHeader(sentinal, newsize-sizeof(struct header), 0, 0);
-
-  struct header *terminator = GET_NEXT(sentinal);
-  packHeader(terminator, 0, newsize-sizeof(struct header), 0);
-  
-  current_page = p;
-  current_page_size = newsize;
 }
 
 /* 
@@ -96,19 +101,21 @@ void *mm_malloc(size_t size)
     while (!IS_TERMINATOR(p)) {
       if (!GET_ALLOC(p) && GET_SIZE(p) >= newsize) {
         if (GET_SIZE(p) - newsize > sizeof(struct header)) {
-          struct header *next = GET_NEXT(p);
-          struct header *newBlock = (struct header *)((void*)p + newsize + sizeof(struct header));
-
           size_t newSize1 = newsize + sizeof(struct header);
           size_t newSize2 = GET_SIZE(p) - newsize;
+
+          struct header *next = GET_NEXT(p);
+          struct header *newBlock = (void*)p + newSize1;
+
           packHeader(newBlock, newSize2, newSize1, 0);
           packHeader(next, next->sizeForward, newSize2, GET_ALLOC(next));
           packHeader(p, newSize1, p->sizeReverse, 1);
 
           #ifdef DEBUG
-            check_implicit_cycle(GET_PAYLOAD(p));
+            check_implicit_cycle(GET_PAYLOAD(newBlock));
           #endif
         }
+        packHeader(p, p->sizeForward, p->sizeReverse, 1);
 
         #ifdef DEBUG
           check_implicit_list(GET_PAYLOAD(p));
@@ -121,6 +128,7 @@ void *mm_malloc(size_t size)
     }
 
     allocate_new_page(newsize);
+    p = (struct header*)current_page;
   }
 }
 
@@ -134,7 +142,7 @@ void mm_free(void *ptr)
   struct header *next = GET_NEXT(p);
   if (!IS_TERMINATOR(next) && !GET_ALLOC(next)) {
     struct header *nextNext = GET_NEXT(next);
-    size_t newSize = GET_SIZE(p) + GET_SIZE(next);
+    size_t newSize = GET_SIZE(p) + GET_SIZE(next) + sizeof(struct header)*2;
     packHeader(p, newSize, p->sizeReverse, 0);
     packHeader(nextNext, nextNext->sizeForward, newSize, GET_ALLOC(nextNext));
     #ifdef DEBUG
@@ -142,18 +150,16 @@ void mm_free(void *ptr)
     #endif
   }
 
-  if (!IS_SENTINEL(p)) {
-    if (!GET_ALLOC(GET_PREV(p))) {
-      p = GET_PREV(p);
-      struct header *next = GET_NEXT(p);
-      struct header *nextNext = GET_NEXT(next);
-      size_t newSize = GET_SIZE(p) + GET_SIZE(next);
-      packHeader(p, newSize, p->sizeReverse, 0);
-      packHeader(nextNext, nextNext->sizeForward, newSize, GET_ALLOC(nextNext));
-      #ifdef DEBUG
-        check_implicit_cycle(GET_PAYLOAD(p));
-      #endif
-    }
+  if (!IS_SENTINEL(p) && !GET_ALLOC(GET_PREV(p))) {
+    p = GET_PREV(p);
+    struct header *next = GET_NEXT(p);
+    struct header *nextNext = GET_NEXT(next);
+    size_t newSize = GET_SIZE(p) + GET_SIZE(next) + sizeof(struct header)*2;
+    packHeader(p, newSize, p->sizeReverse, 0);
+    packHeader(nextNext, nextNext->sizeForward, newSize, GET_ALLOC(nextNext));
+    #ifdef DEBUG
+      check_implicit_cycle(GET_PAYLOAD(p));
+    #endif
   }
 
   #ifdef DEBUG
@@ -165,10 +171,33 @@ void mm_free(void *ptr)
       current_page = NULL;
       current_page_size = 0;
     }
-    mem_unmap(p, p->sizeForward + sizeof(struct header));
+    mem_unmap(p, PAGE_ALIGN(GET_SIZE(p) + sizeof(struct header)*2));
   }
 }
 
+/********************************************************
+ * Helper Functions
+ ********************************************************/
+void allocate_new_page(size_t size) {
+  size_t newsize = PAGE_ALIGN(size + sizeof(struct header)*2);
+  void *p = mem_map(newsize);
+  if (p == NULL) {
+    return;
+  }
+  
+  struct header *sentinal = (struct header *)p;
+  packHeader(sentinal, newsize-sizeof(struct header), 0, 0);
+
+  struct header *terminator = GET_NEXT(sentinal);
+  packHeader(terminator, 0, newsize-sizeof(struct header), 0);
+  
+  current_page = p;
+  current_page_size = newsize;
+}
+
+void add_free(void *f) {}
+
+void remove_free(void *f) {}
 
 /********************************************************
  * Heap Checkers
@@ -216,6 +245,9 @@ void check_implicit_list(void *currentBlock) {
     printf("Error: next pointer does not point to the correct block\n\tp: %p, prev: %p\n", p, prev);
   }
 
+  if (p == start) {
+    return;
+  }
   prev = p;
   p = GET_NEXT(p);
   while (p != start) {
@@ -246,13 +278,17 @@ void check_implicit_cycle(void *currentBlock) {
 
   p = GET_PREV(GET_NEXT(p));
   if (p != start) {
-    printf("Error: implicit list is not forward circular\n");
+    printf("Error: implicit list is not forward circular\n\tp: %p\n", p);
   }
 
   if (!IS_SENTINEL(p)) {
     p = GET_NEXT(GET_PREV(p));
     if (p != start) {
-      printf("Error: implicit list is not backward circular\n");
+      printf("Error: implicit list is not backward circular\n\tp: %p\n", p);
     }
   }
 }
+
+void check_explicit_list(void *f) {}
+
+void check_explicit_cycle(void *f) {}
