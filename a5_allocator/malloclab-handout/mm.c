@@ -11,6 +11,8 @@
 #include "mm.h"
 #include "memlib.h"
 
+#define DEBUG 0
+
 /* always use 16-byte alignment */
 #define ALIGNMENT 16
 
@@ -34,20 +36,20 @@ struct free_node {
 #define GET_HEADER(p) ((struct header*)((void*)(p) - sizeof(struct header)))
 
 /* Given a header pointer do x */
-#define GET_SIZE(h) ((size_t)((void*)(((struct header*)h)->sizeForward & ~0xF) - sizeof(struct header)))
-#define GET_NEXT(h) ((void*)h + (((struct header*)h)->sizeForward & ~0xF))
-#define GET_PREV(h) ((void*)h - ((struct header*)h)->sizeReverse) 
-#define GET_ALLOC(h) (((struct header*)h)->sizeForward & 0x1)
-#define SET_ALLOC(h, alloc) (((struct header*)h)->sizeForward = (((struct header*)h)->sizeForward & ~0xF) | (alloc & 0x1))
-#define GET_PAYLOAD(h) ((void*)((void*)h + sizeof(struct header)))
-#define IS_TERMINATOR(h) (((struct header*)h)->sizeForward == 0)
-#define IS_SENTINEL(h) (((struct header*)h)->sizeReverse == 0)
+#define GET_SIZE(h) ((size_t)((void*)(((struct header*)(h))->sizeForward & ~0xF) - sizeof(struct header)))
+#define GET_NEXT(h) ((void*)(h) + (((struct header*)(h))->sizeForward & ~0xF))
+#define GET_PREV(h) ((void*)(h) - ((struct header*)(h))->sizeReverse) 
+#define GET_ALLOC(h) (((struct header*)(h))->sizeForward & 0x1)
+#define SET_ALLOC(h, alloc) (((struct header*)(h))->sizeForward = (((struct header*)h)->sizeForward & ~0xF) | (alloc & 0x1))
+#define GET_PAYLOAD(h) ((void*)((void*)(h) + sizeof(struct header)))
+#define IS_TERMINATOR(h) (((struct header*)(h))->sizeForward == 0)
+#define IS_SENTINEL(h) (((struct header*)(h))->sizeReverse == 0)
 
 /* Operations on explicit free list */
-#define GET_PREV_FREE(f) (((struct free_node*)f)->prev)
-#define GET_NEXT_FREE(f) (((struct free_node*)f)->next)
-#define IS_FIRST_FREE(f) (((struct free_node*)f)->prev == NULL)
-#define IS_LAST_FREE(f) (((struct free_node*)f)->next == NULL)
+#define GET_PREV_FREE(f) (((struct free_node*)(f))->prev)
+#define GET_NEXT_FREE(f) (((struct free_node*)(f))->next)
+#define IS_FIRST_FREE(f) (((struct free_node*)(f))->prev == NULL)
+#define IS_LAST_FREE(f) (((struct free_node*)(f))->next == NULL)
 
 /* Helper Functions */
 void pack_header(struct header *h, size_t sizeForward, size_t sizeReverse, char alloc);
@@ -125,7 +127,7 @@ void mm_free(void *p)
     pack_header(h, newSize, h->sizeReverse, 0);
     pack_header(nextNext, nextNext->sizeForward, newSize, GET_ALLOC(nextNext));
     remove_free(GET_PAYLOAD(next));
-    #ifdef DEBUG
+    #if DEBUG
       check_implicit_cycle(GET_PAYLOAD(h));
       check_explicit_cycle(GET_PAYLOAD(h));
     #endif
@@ -139,18 +141,18 @@ void mm_free(void *p)
     pack_header(h, newSize, h->sizeReverse, 0);
     pack_header(nextNext, nextNext->sizeForward, newSize, GET_ALLOC(nextNext));
     remove_free(GET_PAYLOAD(next));
-    #ifdef DEBUG
+    #if DEBUG
       check_implicit_cycle(GET_PAYLOAD(h));
       check_explicit_cycle(GET_PAYLOAD(h));
     #endif
   }
 
-  #ifdef DEBUG
+  #if DEBUG
     check_implicit_list(GET_PAYLOAD(h));
     check_explicit_list();
   #endif
 
-  if (IS_SENTINEL(h) && IS_TERMINATOR(GET_NEXT(h))) {
+  if (IS_SENTINEL(h) && IS_TERMINATOR(GET_NEXT(h)) && !IS_LAST_FREE(GET_PAYLOAD(h))) {
     remove_free(GET_PAYLOAD(h));
     mem_unmap(h, PAGE_ALIGN(GET_SIZE(h) + sizeof(struct header)*2));
   }
@@ -165,8 +167,24 @@ void pack_header(struct header *h, size_t sizeForward, size_t sizeReverse, char 
 }
 
 void allocate_new_page(size_t size) {
-  size_t newsize = PAGE_ALIGN(size + sizeof(struct header)*2);
-  void *p = mem_map(newsize);
+  size_t newsize = size + sizeof(struct header)*2;
+  void *p;
+
+  size_t currentSize = mem_heapsize();
+  size_t desiredSize;
+  if (currentSize == 0) {
+    desiredSize = mem_pagesize();
+  }
+  else {
+    desiredSize = PAGE_ALIGN(currentSize*2);
+  }
+  while (desiredSize-currentSize < newsize) {
+    desiredSize += desiredSize;
+  }
+
+  newsize = PAGE_ALIGN(desiredSize - currentSize);
+
+  p = mem_map(newsize);
   if (p == NULL) {
     exit(1);
   }
@@ -194,14 +212,14 @@ char seperate_page(struct header *h, size_t size) {
       pack_header(next, next->sizeForward, newSize2, GET_ALLOC(next));
       pack_header(h, newSize1, h->sizeReverse, 1);
 
-      #ifdef DEBUG
+      #if DEBUG
         check_implicit_cycle(GET_PAYLOAD(newBlock));
       #endif
     }
     pack_header(h, h->sizeForward, h->sizeReverse, 1);
     remove_free(GET_PAYLOAD(h));
 
-    #ifdef DEBUG
+    #if DEBUG
       check_implicit_list(GET_PAYLOAD(h));
       check_explicit_list();
     #endif
