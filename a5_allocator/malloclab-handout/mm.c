@@ -172,6 +172,7 @@ void allocate_new_page(size_t size) {
 
   size_t currentSize = mem_heapsize();
   size_t desiredSize;
+  size_t maxSize = PAGE_ALIGN(32*4096);
   if (currentSize == 0) {
     desiredSize = mem_pagesize();
   }
@@ -182,7 +183,12 @@ void allocate_new_page(size_t size) {
     desiredSize += desiredSize;
   }
 
-  newsize = PAGE_ALIGN(desiredSize - currentSize);
+  if (desiredSize-currentSize >= maxSize) {
+    newsize = maxSize;
+  }
+  else {
+    newsize = PAGE_ALIGN(desiredSize-currentSize);
+  }
 
   p = mem_map(newsize);
   if (p == NULL) {
